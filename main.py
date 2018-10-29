@@ -90,6 +90,7 @@ def main():
     episode_rewards = deque(maxlen=10)
 
     start = time.time()
+    f = open("mylog.txt","w")
     for j in range(num_updates):
         for step in range(args.num_steps):
             # Sample actions
@@ -105,6 +106,9 @@ def main():
             for info in infos:
                 if 'episode' in info.keys():
                     episode_rewards.append(info['episode']['r'])
+                    my_log = str(j*num_updates*num_processes+num_processes*step) + ":" + str(info['episode']['r'])
+                    f.write(my_log+"\n")
+                    print(my_log)
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0]
@@ -141,7 +145,7 @@ def main():
 
         total_num_steps = (j + 1) * args.num_processes * args.num_steps
 
-        if j % args.log_interval == 0 and len(episode_rewards) > 1:
+        if args.need_log  and j % args.log_interval == 0 and len(episode_rewards) > 1:
             end = time.time()
             print("Updates {}, num timesteps {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
                 format(j, total_num_steps,
@@ -199,6 +203,7 @@ def main():
                                   args.algo, args.num_frames)
             except IOError:
                 pass
+    f.close()
 
 
 if __name__ == "__main__":
