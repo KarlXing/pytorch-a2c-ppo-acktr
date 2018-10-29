@@ -106,7 +106,7 @@ def main():
             for info in infos:
                 if 'episode' in info.keys():
                     episode_rewards.append(info['episode']['r'])
-                    my_log = str(j*num_updates*num_processes+num_processes*step) + ":" + str(info['episode']['r'])
+                    my_log = str(j*args.num_steps*args.num_processes+args.num_processes*step) + ":" + str(info['episode']['r'])
                     f.write(my_log+"\n")
                     print(my_log)
 
