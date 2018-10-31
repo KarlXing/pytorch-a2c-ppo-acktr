@@ -12,13 +12,13 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
+    def __init__(self, obs_shape, action_space, base_kwargs=None, mode = 0):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            self.base = CNNBase(obs_shape[0], **base_kwargs)
+            self.base = CNNBase(obs_shape[0], mode = mode, **base_kwargs)
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:
@@ -71,6 +71,13 @@ class Policy(nn.Module):
         dist_entropy = dist.entropy().mean()
 
         return value, action_log_probs, dist_entropy, rnn_hxs
+
+    def save_nets(self):
+        return self.base.state_dict(), self.dist.state_dict()
+
+    def load_nets(self, state_dicts):
+        self.base.load_state_dict(state_dicts[0])
+        self.dist.load_state_dict(state_dicts[1])
 
 
 class NNBase(nn.Module):
@@ -131,25 +138,25 @@ class NNBase(nn.Module):
 
 
 class CNNBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=512):
+    def __init__(self, num_inputs, mode=0, recurrent=False, hidden_size=512):
         super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
 
+        self.mode = mode
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0),
             nn.init.calculate_gain('relu'))
 
-        self.main = nn.Sequential(
-            init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
-            nn.ReLU(),
-            init_(nn.Conv2d(32, 64, 4, stride=2)),
-            nn.ReLU(),
-            init_(nn.Conv2d(64, 32, 3, stride=1)),
-            nn.ReLU(),
-            Flatten(),
-            init_(nn.Linear(32 * 7 * 7, hidden_size)),
-            nn.ReLU()
-        )
+        self.conv1 = init_(nn.Conv2d(num_inputs, 32, 8, stride=4))
+        self.conv2 = init_(nn.Conv2d(32, 64, 4, stride=2))
+        self.conv3 = init_(nn.Conv2d(64, 32, 3, stride=1))
+
+        if mode != 0:
+            init_ = lambda m: init(m,
+                nn.init.orthogonal_,
+                lambda x: nn.init.constant_(x, 0),
+                nn.init.calculate_gain('tanh'))
+        self.f1 = init_(nn.Linear(32 * 7 * 7, hidden_size))
 
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
@@ -160,12 +167,17 @@ class CNNBase(NNBase):
         self.train()
 
     def forward(self, inputs, rnn_hxs, masks):
-        x = self.main(inputs / 255.0)
+        x = nn.Relu(self.conv1(inputs/255))
+        x = nn.Relu(self.conv2(x))
+        x = nn.Relu(self.conv3(x))
+        x = self.f1(x)
 
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
-        return self.critic_linear(x), x, rnn_hxs
+        # if self.is_recurrent:
+        #     x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+        if self.mode == 0:
+            return self.critic_linear(nn.Relu(x)), nn.Relu(x), rnn_hxs
+        else:
+            return self.critic_linear(nn.Relu(x)), torch.tanh(x), rnn_hxs
 
 
 class MLPBase(NNBase):

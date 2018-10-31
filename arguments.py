@@ -53,6 +53,8 @@ def get_args():
                         help='directory to save agent logs (default: /tmp/gym)')
     parser.add_argument('--save-dir', default='./trained_models/',
                         help='directory to save agent logs (default: ./trained_models/)')
+    parser.add_argument('--load-model-path', default=None,
+                        help='load model (default: None)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--add-timestep', action='store_true', default=False,
@@ -65,6 +67,9 @@ def get_args():
                         help='port to run the server on (default: 8097)')
     parser.add_argument('--need-log', action='store_true', default=False,
                         help='whether need log interval')
+    parser.add_argument('--mode', type = int, default=0,
+                        help='3 modes. 0:relu, 1:tanh, 2:tanh+modulation')
+
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()

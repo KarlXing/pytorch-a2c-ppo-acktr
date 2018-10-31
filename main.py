@@ -18,13 +18,15 @@ from model import Policy
 from storage import RolloutStorage
 from utils import get_vec_normalize
 from visualize import visdom_plot
+from tensorboardX import SummaryWriter
 
 args = get_args()
 
-assert args.algo in ['a2c', 'ppo', 'acktr']
-if args.recurrent_policy:
-    assert args.algo in ['a2c', 'ppo'], \
-        'Recurrent policy is not implemented for ACKTR'
+# assert args.algo in ['a2c', 'ppo', 'acktr']
+assert args.algo == 'a2c'
+# if args.recurrent_policy:
+#     assert args.algo in ['a2c', 'ppo'], \
+#         'Recurrent policy is not implemented for ACKTR'
 
 num_updates = int(args.num_frames) // args.num_steps // args.num_processes
 
@@ -50,6 +52,7 @@ except OSError:
 
 
 def main():
+    writer = SummaryWriter()
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
@@ -62,22 +65,28 @@ def main():
                         args.gamma, args.log_dir, args.add_timestep, device, False)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
-        base_kwargs={'recurrent': args.recurrent_policy})
+        base_kwargs={'recurrent': args.recurrent_policy}, mode = args.mode)
+    # load trained model
+    if args.load_model_path != None:
+        state_dicts = torch.load(args.load_model_path)
+        actor_critic.load_nets(state_dicts)
+
     actor_critic.to(device)
+
 
     if args.algo == 'a2c':
         agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
                                args.entropy_coef, lr=args.lr,
                                eps=args.eps, alpha=args.alpha,
                                max_grad_norm=args.max_grad_norm)
-    elif args.algo == 'ppo':
-        agent = algo.PPO(actor_critic, args.clip_param, args.ppo_epoch, args.num_mini_batch,
-                         args.value_loss_coef, args.entropy_coef, lr=args.lr,
-                               eps=args.eps,
-                               max_grad_norm=args.max_grad_norm)
-    elif args.algo == 'acktr':
-        agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
-                               args.entropy_coef, acktr=True)
+    # elif args.algo == 'ppo':
+    #     agent = algo.PPO(actor_critic, args.clip_param, args.ppo_epoch, args.num_mini_batch,
+    #                      args.value_loss_coef, args.entropy_coef, lr=args.lr,
+    #                            eps=args.eps,
+    #                            max_grad_norm=args.max_grad_norm)
+    # elif args.algo == 'acktr':
+    #     agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
+    #                            args.entropy_coef, acktr=True)
 
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
@@ -90,7 +99,6 @@ def main():
     episode_rewards = deque(maxlen=10)
 
     start = time.time()
-    f = open("mylog.txt","w")
     for j in range(num_updates):
         for step in range(args.num_steps):
             # Sample actions
@@ -103,12 +111,13 @@ def main():
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
 
-            for info in infos:
+            for idx in range(infos):
+                info = infos[idx]
                 if 'episode' in info.keys():
                     episode_rewards.append(info['episode']['r'])
-                    my_log = str(j*args.num_steps*args.num_processes+args.num_processes*step) + ":" + str(info['episode']['r'])
-                    f.write(my_log+"\n")
-                    print(my_log)
+                    steps_done = j*args.num_steps*args.num_processes + step*args.num_processes + idx
+                    writer.add_scalar('data/reward', info['episode']['r'], steps_done )
+
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0]
@@ -131,17 +140,21 @@ def main():
             try:
                 os.makedirs(save_path)
             except OSError:
-                pass
-
+                    pass
+            '''
             # A really ugly way to save a model to CPU
-            save_model = actor_critic
-            if args.cuda:
-                save_model = copy.deepcopy(actor_critic).cpu()
 
-            save_model = [save_model,
-                          getattr(get_vec_normalize(envs), 'ob_rms', None)]
+            # save_model = actor_critic
+            # if args.cuda:
+            #     save_model = copy.deepcopy(actor_critic).cpu()
 
-            torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
+            # save_model = [save_model,
+            #               getattr(get_vec_normalize(envs), 'ob_rms', None)]
+
+            # torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
+            '''
+            state_dicts = actor_critic.save_nets()
+            torch.save(state_dicts, save_path)
 
         total_num_steps = (j + 1) * args.num_processes * args.num_steps
 
@@ -203,8 +216,8 @@ def main():
                                   args.algo, args.num_frames)
             except IOError:
                 pass
-    f.close()
-
+    writer.export_scalars_to_json("./all_scalars.json")
+    writer.close()
 
 if __name__ == "__main__":
     main()
