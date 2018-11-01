@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from distributions import Categorical, DiagGaussian
-from utils import init, init_normc_
+from utils import init, init_normc_, tanh_g
 
 
 class Flatten(nn.Module):
@@ -12,13 +12,13 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base_kwargs=None, mode = 0):
+    def __init__(self, obs_shape, action_space, base_kwargs=None, activation=1):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            self.base = CNNBase(obs_shape[0], mode = mode, **base_kwargs)
+            self.base = CNNBase(obs_shape[0], activation = activation, **base_kwargs)
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:
@@ -45,8 +45,8 @@ class Policy(nn.Module):
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
-    def act(self, inputs, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+    def act(self, inputs, g, rnn_hxs, masks, deterministic=False):
+        value, actor_features, rnn_hxs = self.base(inputs, g, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         if deterministic:
@@ -59,12 +59,12 @@ class Policy(nn.Module):
 
         return value, action, action_log_probs, rnn_hxs
 
-    def get_value(self, inputs, rnn_hxs, masks):
-        value, _, _ = self.base(inputs, rnn_hxs, masks)
+    def get_value(self, inputs, g, rnn_hxs, masks):
+        value, _, _ = self.base(inputs, g, rnn_hxs, masks)
         return value
 
-    def evaluate_actions(self, inputs, rnn_hxs, masks, action):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+    def evaluate_actions(self, inputs, g, rnn_hxs, masks, action):
+        value, actor_features, rnn_hxs = self.base(inputs, g, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         action_log_probs = dist.log_probs(action)
@@ -138,10 +138,10 @@ class NNBase(nn.Module):
 
 
 class CNNBase(NNBase):
-    def __init__(self, num_inputs, mode=0, recurrent=False, hidden_size=512):
+    def __init__(self, num_inputs, activation=1, recurrent=False, hidden_size=512):
         super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
 
-        self.mode = mode
+        self.activation = activation
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0),
@@ -151,7 +151,7 @@ class CNNBase(NNBase):
         self.conv2 = init_(nn.Conv2d(32, 64, 4, stride=2))
         self.conv3 = init_(nn.Conv2d(64, 32, 3, stride=1))
 
-        if mode != 0:
+        if self.activation == 1:
             init_ = lambda m: init(m,
                 nn.init.orthogonal_,
                 lambda x: nn.init.constant_(x, 0),
@@ -166,18 +166,18 @@ class CNNBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks):
-        x = nn.Relu(self.conv1(inputs/255))
+    def forward(self, inputs, g, rnn_hxs, masks):
+        x = nn.Relu(self.conv1(inputs))
         x = nn.Relu(self.conv2(x))
         x = nn.Relu(self.conv3(x))
         x = self.f1(x)
 
         # if self.is_recurrent:
         #     x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-        if self.mode == 0:
+        if self.activation == 0:
             return self.critic_linear(nn.Relu(x)), nn.Relu(x), rnn_hxs
-        else:
-            return self.critic_linear(nn.Relu(x)), torch.tanh(x), rnn_hxs
+        elif self.activation == 1:
+            return self.critic_linear(nn.Relu(x)), tanh_g(x,g), rnn_hxs
 
 
 class MLPBase(NNBase):
@@ -209,7 +209,7 @@ class MLPBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks):
+    def forward(self, inputs, g, rnn_hxs, masks):
         x = inputs
 
         if self.is_recurrent:

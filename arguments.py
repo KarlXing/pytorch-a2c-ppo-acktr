@@ -67,8 +67,23 @@ def get_args():
                         help='port to run the server on (default: 8097)')
     parser.add_argument('--need-log', action='store_true', default=False,
                         help='whether need log interval')
-    parser.add_argument('--mode', type = int, default=0,
-                        help='3 modes. 0:relu, 1:tanh, 2:tanh+modulation')
+    parser.add_argument('--evaluation', action='store_true', default=False,
+                        help='whether need evaluations')
+    parser.add_argument('--activation', type = int, default = 1,
+                        help='which activation function to use, relu 0; tanh 1')
+    parser.add_argument('--evaluation-mode', type = int, default=0,
+                        help='evaluation modes, 0:abs(diff), 1:changing direction')
+    parser.add_argument('--evaluation-layer', type = int, default=0,
+                        help='which layer to add evaluation, 0:inputs, 1:f1')
+    parser.add_argument('--input-tonic-g', type = float, default=100.0,
+                        help='tonic g')
+    parser.add_argument('--input-phasic-g', type = float, default=20.0,
+                        help='phasic g')
+    parser.add_argument('--f1-tonic-g', type = float, default=2,
+                        help='tonic g')
+    parser.add_argument('--f1-phasic-g', type = float, default=0.5,
+                        help='phasic g')
+
 
     args = parser.parse_args()
 

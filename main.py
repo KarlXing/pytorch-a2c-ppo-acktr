@@ -16,7 +16,7 @@ from arguments import get_args
 from envs import make_vec_envs
 from model import Policy
 from storage import RolloutStorage
-from utils import get_vec_normalize
+from utils import get_vec_normalize, calc_modes, neural_activity
 from visualize import visdom_plot
 from tensorboardX import SummaryWriter
 
@@ -65,7 +65,7 @@ def main():
                         args.gamma, args.log_dir, args.add_timestep, device, False)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
-        base_kwargs={'recurrent': args.recurrent_policy}, mode = args.mode)
+        base_kwargs={'recurrent': args.recurrent_policy}, activation = args.activation)
     # load trained model
     if args.load_model_path != None:
         state_dicts = torch.load(args.load_model_path)
@@ -88,9 +88,29 @@ def main():
     #     agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
     #                            args.entropy_coef, acktr=True)
 
+    # g for tanh_g func of f1 layer
+    if args.evaluation and args.evaluation_layer == 1:
+        f1_tonic_g = args.f1_tonic_g
+        f1_phasic_g = args.f1_phasic_g
+    else:
+        f1_tonic_g = 1
+        f1_phasic_g = 1
+
+    # g for input layer
+    if args.evaluation and args.evaluation_layer == 0:
+        input_tonic_g = args.input_tonic_g
+        input_phasic_g = args.input_phasic_g
+    else:
+        input_tonic_g = 1
+        input_phasic_g = 1
+
+
+    input_g = torch.ones(args.num_processes,1)*input_tonic_g
+    f1_g = torch.ones(args.num_processes,1)*f1_tonic_g
+
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
-                        actor_critic.recurrent_hidden_state_size)
+                        actor_critic.recurrent_hidden_state_size, f1_tonic_g)
 
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
@@ -99,17 +119,53 @@ def main():
     episode_rewards = deque(maxlen=10)
 
     start = time.time()
+    pre_value = [None for i in range(args.num_processes)]
+    evaluations = [0 for i in range(args.num_processes)]
+    ## to calculate next_value and update g
+    next_recurrent_hidden_states = torch.zeros(args.num_processes, actor_critic.recurrent_hidden_state_size).to(device)
+    next_g = torch.zeros(args.num_processes,1).to(device)
+    next_masks = torch.zeros(args.num_processes,1).to(device)
+    next_obs = torch.zeros(args.num_processes, *envs.observation_space.shape).to(device)
+
     for j in range(num_updates):
         for step in range(args.num_steps):
             # Sample actions
             with torch.no_grad():
                 value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
                         rollouts.obs[step],
+                        rollouts.g[step],
                         rollouts.recurrent_hidden_states[step],
                         rollouts.masks[step])
 
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
+            # If done then clean the history of observations.
+            masks = torch.FloatTensor([[0.0] if done_ else [1.0]
+                                       for done_ in done])
+            # calculate next value with old g and decide new g
+            if args.evaluation:
+                if args.evaluation_layer == 0:
+                    next_obs.copy_(neural_activity(obs,input_g))
+                else:
+                    next_obs.copy_(obs/255)
+                next_recurrent_hidden_states.copy_(recurrent_hidden_states)
+                next_g.copy_(f1_g)
+                next_masks.copy_(masks)
+                with torch.no_grad():
+                    next_value = actor_critic.get_value(next_obs,
+                                                next_g,
+                                                next_recurrent_hidden_states,
+                                                next_masks).detach()
+                if args.evaluation_layer == 0:
+                    evaluations, input_g, pre_value = calc_modes(reward, next_value, pre_value, evaluations, args.evaluation_mode, input_tonic_g, input_phasic_g, masks)
+                else:
+                    evaluations, f1_g, pre_value = calc_modes(reward, next_value, pre_value, evaluations, args.evaluation_mode, f1_tonic_g, f1_phasic_g, masks)
+
+            # observation processing with new g
+            if args.evaluation and args.evaluation_layer == 0:
+                obs = neural_activity(obs, input_g)
+            else:
+                obs = obs/255.0
 
             for idx in range(infos):
                 info = infos[idx]
@@ -117,22 +173,15 @@ def main():
                     episode_rewards.append(info['episode']['r'])
                     steps_done = j*args.num_steps*args.num_processes + step*args.num_processes + idx
                     writer.add_scalar('data/reward', info['episode']['r'], steps_done )
-
-
-            # If done then clean the history of observations.
-            masks = torch.FloatTensor([[0.0] if done_ else [1.0]
-                                       for done_ in done])
-            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
+            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks, f1_g)
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1],
+                                                rollouts.g[-1],
                                                 rollouts.recurrent_hidden_states[-1],
                                                 rollouts.masks[-1]).detach()
-
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
-
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
-
         rollouts.after_update()
 
         if j % args.save_interval == 0 and args.save_dir != "":
@@ -216,6 +265,7 @@ def main():
                                   args.algo, args.num_frames)
             except IOError:
                 pass
+
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
