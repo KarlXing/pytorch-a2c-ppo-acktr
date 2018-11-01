@@ -162,7 +162,7 @@ class CNNBase(NNBase):
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+        self.critic_linear = init_(nn.Linear(hidden_size+1, 1))
 
         self.train()
 
@@ -178,7 +178,7 @@ class CNNBase(NNBase):
         if self.activation == 0:
             return self.critic_linear(F.relu(x)), F.relu(x), rnn_hxs
         elif self.activation == 1:
-            return self.critic_linear(F.relu(x)), tanh_g(x,g), rnn_hxs
+            return self.critic_linear(torch.cat((F.relu(x),g),1)), tanh_g(x,g), rnn_hxs
 
 
 class MLPBase(NNBase):
