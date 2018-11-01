@@ -150,7 +150,7 @@ def main():
             # calculate next value with old g and decide new g
             if args.evaluation:
                 if args.evaluation_layer == 0:
-                    next_obs.copy_(neural_activity(obs,input_g))
+                    next_obs.copy_(neural_activity(obs.cpu(),input_g))
                 else:
                     next_obs.copy_(obs/255)
                 next_recurrent_hidden_states.copy_(recurrent_hidden_states)
@@ -168,7 +168,7 @@ def main():
 
             # observation processing with new g
             if args.evaluation and args.evaluation_layer == 0:
-                obs = neural_activity(obs, input_g)
+                obs = neural_activity(obs.cpu(), input_g)
             else:
                 obs = obs/255.0
 
