@@ -167,7 +167,7 @@ def main():
             else:
                 obs = obs/255.0
 
-            for idx in range(infos):
+            for idx in range(len(infos)):
                 info = infos[idx]
                 if 'episode' in info.keys():
                     episode_rewards.append(info['episode']['r'])
@@ -203,7 +203,7 @@ def main():
             # torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
             '''
             state_dicts = actor_critic.save_nets()
-            torch.save(state_dicts, save_path)
+            torch.save(state_dicts, os.path.join(save_path, args.env_name + ".pt"))
 
         total_num_steps = (j + 1) * args.num_processes * args.num_steps
 

@@ -167,17 +167,18 @@ class CNNBase(NNBase):
         self.train()
 
     def forward(self, inputs, g, rnn_hxs, masks):
-        x = nn.Relu(self.conv1(inputs))
-        x = nn.Relu(self.conv2(x))
-        x = nn.Relu(self.conv3(x))
+        x = F.relu(self.conv1(inputs))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = x.view(x.size(0), -1)
         x = self.f1(x)
 
         # if self.is_recurrent:
         #     x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
         if self.activation == 0:
-            return self.critic_linear(nn.Relu(x)), nn.Relu(x), rnn_hxs
+            return self.critic_linear(F.relu(x)), F.relu(x), rnn_hxs
         elif self.activation == 1:
-            return self.critic_linear(nn.Relu(x)), tanh_g(x,g), rnn_hxs
+            return self.critic_linear(F.relu(x)), tanh_g(x,g), rnn_hxs
 
 
 class MLPBase(NNBase):
