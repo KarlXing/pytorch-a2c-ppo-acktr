@@ -52,6 +52,11 @@ except OSError:
 
 
 def main():
+    print("config:\n")
+    print("activation:", args.activation)
+    print("evaluation:", args.evaluation)
+    print("evaluation mode:", args.evaluation_mode)
+    print("evaluation layer:", args.evaluation_layer)
     writer = SummaryWriter()
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")

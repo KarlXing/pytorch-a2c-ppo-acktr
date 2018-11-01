@@ -69,11 +69,11 @@ def calc_modes(rewards, next_values, pre_values, evaluations, mode, tonic_g, pha
             new_evaluations.append(0.75*evaluations[i]+0.25*(next_values[i]+rewards[i]-pre_values[i]))
             new_pre_values.append(next_values[i])
 
-    # mode 0: use diff; mode 1: use abs(diff)
-    if mode == 0:
-        g = torch.FloatTensor([[tonic_g] if evaluation < 2.0 else phasic_g for evaluation in evaluations])
+    # mode 1: use diff; mode 0: use abs(diff)
+    if mode == 1:
+        g = torch.FloatTensor([[tonic_g] if evaluation < 2.0 else [phasic_g] for evaluation in evaluations])
     else:
-        g = torch.FloatTensor([[tonic_g] if abs(evaluation) > 2.0  else phasic_g for evaluation in evaluations])
+        g = torch.FloatTensor([[tonic_g] if abs(evaluation) > 2.0  else [phasic_g] for evaluation in evaluations])
     
     return new_evaluations, g, new_pre_values
 
