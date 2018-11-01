@@ -54,8 +54,8 @@ def init_normc_(weight, gain=1):
 
 
 def calc_modes(rewards, next_values, pre_values, evaluations, mode, tonic_g, phasic_g, masks):
-    rewards = rewards.squeeze().numpy()
-    next_values = next_values.squeeze().numpy()
+    rewards = rewards.cpu().squeeze().numpy()
+    next_values = next_values.cpu().squeeze().numpy()
     new_pre_values = []
     new_evaluations = []
     for i in range(len(pre_values)):
