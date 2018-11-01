@@ -162,7 +162,10 @@ class CNNBase(NNBase):
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
-        self.critic_linear = init_(nn.Linear(hidden_size+1, 1))
+        if self.activation == 0:
+            self.critic_linear = init_(nn.Linear(hidden_size, 1))
+        else:
+            self.critic_linear = init_(nn.Linear(hidden_size+1, 1))
 
         self.train()
 
