@@ -104,7 +104,7 @@ def main():
         phasic_g = args.input_phasic_g
 
     g = torch.ones(args.num_processes,1)*tonic_g
-    g_device = torch.ones(args.num_processes,1)*tonic_g.to(device)
+    g_device = (torch.ones(args.num_processes,1)*tonic_g).to(device)
 
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
