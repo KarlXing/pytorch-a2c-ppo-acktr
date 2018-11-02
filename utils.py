@@ -82,10 +82,8 @@ def tanh_g(x,g):
     return torch.tanh(x)
 
 def neural_activity(s, g, mid = 128):
-    g = g.numpy()
-    s = s.numpy()
     assert(s.shape[0] == g.shape[0])
     for i in range(s.shape[0]):
-        s[i] = (np.tanh((s[i]-mid)/g[i])+1)/2
-    return torch.from_numpy(s)
+        s[i] = (torch.tanh((s[i]-mid)/g[i])+1)/2
+    return s
 

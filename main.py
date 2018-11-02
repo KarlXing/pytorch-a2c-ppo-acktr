@@ -70,7 +70,7 @@ def main():
                         args.gamma, args.log_dir, args.add_timestep, device, False)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
-        base_kwargs={'recurrent': args.recurrent_policy}, activation = args.activation)
+        base_kwargs={'recurrent': args.recurrent_policy}, activation = args.activation, modulation = args.evaluation)
     # load trained model
     if args.load_model_path != None:
         state_dicts = torch.load(args.load_model_path)
@@ -93,29 +93,22 @@ def main():
     #     agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
     #                            args.entropy_coef, acktr=True)
 
-    # g for tanh_g func of f1 layer
-    if args.evaluation and args.evaluation_layer == 1:
-        f1_tonic_g = args.f1_tonic_g
-        f1_phasic_g = args.f1_phasic_g
-    else:
-        f1_tonic_g = 1
-        f1_phasic_g = 1
 
-    # g for input layer
-    if args.evaluation and args.evaluation_layer == 0:
-        input_tonic_g = args.input_tonic_g
-        input_phasic_g = args.input_phasic_g
-    else:
-        input_tonic_g = 1
-        input_phasic_g = 1
+    tonic_g = 1
+    phasic_g = 1
+    if args.evaluation and args.evaluation_layer == 1:  # f1 modulation
+        tonic_g = args.f1_tonic_g
+        phasic_g = args.f1_phasic_g
+    if args.evaluation and args.evaluation_layer == 0:  # input activation
+        tonic_g = args.input_tonic_g
+        phasic_g = args.input_phasic_g
 
-
-    input_g = torch.ones(args.num_processes,1)*input_tonic_g
-    f1_g = torch.ones(args.num_processes,1)*f1_tonic_g
+    g = torch.ones(args.num_processes,1)*tonic_g
+    g_device = torch.ones(args.num_processes,1)*tonic_g.to(device)
 
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
-                        actor_critic.recurrent_hidden_state_size, f1_tonic_g)
+                        actor_critic.recurrent_hidden_state_size, tonic_g)
 
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
@@ -150,25 +143,23 @@ def main():
             # calculate next value with old g and decide new g
             if args.evaluation:
                 if args.evaluation_layer == 0:
-                    next_obs.copy_(neural_activity(obs.cpu(),input_g))
+                    next_obs.copy_(neural_activity(obs,g_device))
                 else:
                     next_obs.copy_(obs/255)
                 next_recurrent_hidden_states.copy_(recurrent_hidden_states)
-                next_g.copy_(f1_g)
+                next_g.copy_(g)
                 next_masks.copy_(masks)
                 with torch.no_grad():
                     next_value = actor_critic.get_value(next_obs,
                                                 next_g,
                                                 next_recurrent_hidden_states,
                                                 next_masks).detach()
-                if args.evaluation_layer == 0:
-                    evaluations, input_g, pre_value = calc_modes(reward, next_value, pre_value, evaluations, args.evaluation_mode, input_tonic_g, input_phasic_g, masks)
-                else:
-                    evaluations, f1_g, pre_value = calc_modes(reward, next_value, pre_value, evaluations, args.evaluation_mode, f1_tonic_g, f1_phasic_g, masks)
+                evaluations, g, pre_value = calc_modes(reward, next_value, pre_value, evaluations, args.evaluation_mode, tonic_g, phasic_g, masks)
+                g_device.copy_(g)
 
             # observation processing with new g
             if args.evaluation and args.evaluation_layer == 0:
-                obs = neural_activity(obs.cpu(), input_g)
+                obs = neural_activity(obs, g_device)
             else:
                 obs = obs/255.0
 
@@ -178,7 +169,11 @@ def main():
                     episode_rewards.append(info['episode']['r'])
                     steps_done = j*args.num_steps*args.num_processes + step*args.num_processes + idx
                     writer.add_scalar('data/reward', info['episode']['r'], steps_done )
-            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks, f1_g)
+            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks, g)
+
+            # record evaluation value to help decide parameters to switch modes
+            if args.evaluation_log:
+                writer.add_scalar('data/evaluations', evaluations[0], j*args.num_steps*args.num_processes + step*args.num_processes)
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1],
@@ -195,81 +190,11 @@ def main():
                 os.makedirs(save_path)
             except OSError:
                     pass
-            '''
-            # A really ugly way to save a model to CPU
 
-            # save_model = actor_critic
-            # if args.cuda:
-            #     save_model = copy.deepcopy(actor_critic).cpu()
-
-            # save_model = [save_model,
-            #               getattr(get_vec_normalize(envs), 'ob_rms', None)]
-
-            # torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
-            '''
             state_dicts = actor_critic.save_nets()
             torch.save(state_dicts, os.path.join(save_path, args.env_name + ".pt"))
 
         total_num_steps = (j + 1) * args.num_processes * args.num_steps
-
-        if args.need_log  and j % args.log_interval == 0 and len(episode_rewards) > 1:
-            end = time.time()
-            print("Updates {}, num timesteps {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
-                format(j, total_num_steps,
-                       int(total_num_steps / (end - start)),
-                       len(episode_rewards),
-                       np.mean(episode_rewards),
-                       np.median(episode_rewards),
-                       np.min(episode_rewards),
-                       np.max(episode_rewards), dist_entropy,
-                       value_loss, action_loss))
-
-        if (args.eval_interval is not None
-                and len(episode_rewards) > 1
-                and j % args.eval_interval == 0):
-            eval_envs = make_vec_envs(
-                args.env_name, args.seed + args.num_processes, args.num_processes,
-                args.gamma, eval_log_dir, args.add_timestep, device, True)
-
-            vec_norm = get_vec_normalize(eval_envs)
-            if vec_norm is not None:
-                vec_norm.eval()
-                vec_norm.ob_rms = get_vec_normalize(envs).ob_rms
-
-            eval_episode_rewards = []
-
-            obs = eval_envs.reset()
-            eval_recurrent_hidden_states = torch.zeros(args.num_processes,
-                            actor_critic.recurrent_hidden_state_size, device=device)
-            eval_masks = torch.zeros(args.num_processes, 1, device=device)
-
-            while len(eval_episode_rewards) < 10:
-                with torch.no_grad():
-                    _, action, _, eval_recurrent_hidden_states = actor_critic.act(
-                        obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
-
-                # Obser reward and next obs
-                obs, reward, done, infos = eval_envs.step(action)
-
-                eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0]
-                                                for done_ in done])
-                for info in infos:
-                    if 'episode' in info.keys():
-                        eval_episode_rewards.append(info['episode']['r'])
-
-            eval_envs.close()
-
-            print(" Evaluation using {} episodes: mean reward {:.5f}\n".
-                format(len(eval_episode_rewards),
-                       np.mean(eval_episode_rewards)))
-
-        if args.vis and j % args.vis_interval == 0:
-            try:
-                # Sometimes monitor doesn't properly flush the outputs
-                win = visdom_plot(viz, win, args.log_dir, args.env_name,
-                                  args.algo, args.num_frames)
-            except IOError:
-                pass
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()

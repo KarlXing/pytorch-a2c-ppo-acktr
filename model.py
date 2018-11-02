@@ -12,13 +12,13 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base_kwargs=None, activation=1):
+    def __init__(self, obs_shape, action_space, base_kwargs=None, activation=1, modulation=False):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            self.base = CNNBase(obs_shape[0], activation = activation, **base_kwargs)
+            self.base = CNNBase(obs_shape[0], activation = activation, modulation=modulation, **base_kwargs)
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:
@@ -138,10 +138,11 @@ class NNBase(nn.Module):
 
 
 class CNNBase(NNBase):
-    def __init__(self, num_inputs, activation=1, recurrent=False, hidden_size=512):
+    def __init__(self, num_inputs, activation=1, modulation=False, recurrent=False, hidden_size=512):
         super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
-
+        print("model modulation:", modulation)
         self.activation = activation
+        self.modulation = modulation
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0),
@@ -162,10 +163,10 @@ class CNNBase(NNBase):
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
-        if self.activation == 0:
-            self.critic_linear = init_(nn.Linear(hidden_size, 1))
-        else:
+        if self.modulation:
             self.critic_linear = init_(nn.Linear(hidden_size+1, 1))
+        else:
+            self.critic_linear = init_(nn.Linear(hidden_size, 1))
 
         self.train()
 
@@ -176,12 +177,19 @@ class CNNBase(NNBase):
         x = x.view(x.size(0), -1)
         x = self.f1(x)
 
-        # if self.is_recurrent:
-        #     x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-        if self.activation == 0:
-            return self.critic_linear(F.relu(x)), F.relu(x), rnn_hxs
-        elif self.activation == 1:
-            return self.critic_linear(torch.cat((F.relu(x),g),1)), tanh_g(x,g), rnn_hxs
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+
+        if self.modulation:
+            if self.activation == 0:
+                return self.critic_linear(torch.cat((F.relu(x),g),1)), F.relu(x), rnn_hxs
+            else:
+                return self.critic_linear(torch.cat((F.relu(x),g),1)), tanh_g(x,g), rnn_hxs
+        else:
+            if self.activation == 0:
+                return self.critic_linear(F.relu(x)), F.relu(x), rnn_hxs
+            else:
+                return self.critic_linear(F.relu(x)), torch.tanh(x), rnn_hxs
 
 
 class MLPBase(NNBase):

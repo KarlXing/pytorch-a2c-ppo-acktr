@@ -6,8 +6,8 @@ import torch
 from gym.spaces.box import Box
 
 from baselines import bench
-# from atari_wrappers import make_atari, wrap_carl
-from baselines.common.atari_wrappers import make_atari, wrap_deepmind
+from atari_wrappers import make_atari, wrap_carl
+# from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.vec_env import VecEnvWrapper
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv

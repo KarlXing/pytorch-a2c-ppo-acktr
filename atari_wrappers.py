@@ -281,7 +281,7 @@ def wrap_carl(env, episode_life=True, scale_rewards = True, clip_rewards=False, 
         env = EpisodicLifeEnv(env)
     if 'FIRE' in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
-    env = ResizeFrame(env)
+    env = WarpFrame(env)
     if scale:
         env = ScaledFloatFrame(env)
     if clip_rewards:

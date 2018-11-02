@@ -69,6 +69,8 @@ def get_args():
                         help='whether need log interval')
     parser.add_argument('--evaluation', action='store_true', default=False,
                         help='whether need evaluations')
+    parser.add_argument('--evaluation-log', action='store_true', default=False,
+                        help='whether need summary evaluations')
     parser.add_argument('--activation', type = int, default = 1,
                         help='which activation function to use, relu 0; tanh 1')
     parser.add_argument('--evaluation-mode', type = int, default=0,
