@@ -141,7 +141,7 @@ def main():
             masks = torch.FloatTensor([[0.0] if done_ else [1.0]
                                        for done_ in done])
             # calculate next value with old g and decide new g
-            if args.evaluation:
+            if args.evaluation or args.evaluation_log:
                 if args.evaluation_layer == 0:
                     next_obs.copy_(neural_activity(obs,g_device))
                 else:
